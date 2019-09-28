@@ -124,6 +124,7 @@ class TestDevice:
         self.user_count = 10
         self.is_sim = False
         self.is_nfc = False
+        self.dev = None
         self.nfc_interface_only = False
         if tester:
             self.initFrom(tester)
@@ -139,6 +140,8 @@ class TestDevice:
         self.nfc_interface_only = tester.nfc_interface_only
 
     def find_device(self, nfcInterfaceOnly=False):
+        if self.dev is not None:
+            return
         dev = None
         self.nfc_interface_only = nfcInterfaceOnly
         if not nfcInterfaceOnly:
