@@ -1,5 +1,6 @@
 import struct
 import time
+import sys
 
 import pytest
 from fido2.attestation import Attestation
@@ -9,14 +10,19 @@ from fido2.ctap1 import CTAP1
 from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
 from fido2.hid import CtapHidDevice
 from fido2.utils import Timeout, hmac_sha256, sha256
-from solo.fido2 import force_udp_backend
 
 from tests.utils import *
+
+if 'trezor' in sys.argv:
+    from .vendor.trezor.udp_backend import force_udp_backend
+else:
+    from solo.fido2 import force_udp_backend
 
 
 def pytest_addoption(parser):
     parser.addoption("--sim", action="store_true")
     parser.addoption("--nfc", action="store_true")
+    parser.addoption("--experimental", action="store_true")
     parser.addoption("--vendor", default="none")
 
 
@@ -259,15 +265,15 @@ class TestDevice:
         elif data[0] != err:
             raise ValueError("Unexpected error: %02x" % data[0])
 
-    def register(self, chal, appid):
-        reg_data = _call_polling(0.25, None, None, self.ctap1.register, chal, appid)
+    def register(self, chal, appid, on_keepalive=DeviceSelectCredential(1)):
+        reg_data = _call_polling(0.25, None, on_keepalive, self.ctap1.register, chal, appid)
         return reg_data
 
-    def authenticate(self, chal, appid, key_handle, check_only=False):
+    def authenticate(self, chal, appid, key_handle, check_only=False, on_keepalive=DeviceSelectCredential(1)):
         auth_data = _call_polling(
             0.25,
             None,
-            None,
+            on_keepalive,
             self.ctap1.authenticate,
             chal,
             appid,
@@ -279,14 +285,14 @@ class TestDevice:
     def reset(self,):
         print("Resetting Authenticator...")
         try:
-            self.ctap2.reset()
+            self.ctap2.reset(on_keepalive=DeviceSelectCredential(1))
         except CtapError:
             # Some authenticators need a power cycle
             print("You must power cycle authentictor.  Hit enter when done.")
             input()
             time.sleep(0.2)
             self.find_device(self.nfc_interface_only)
-            self.ctap2.reset()
+            self.ctap2.reset(on_keepalive=DeviceSelectCredential(1))
 
     def sendMC(self, *args, **kwargs):
         attestation_object = self.ctap2.make_credential(*args, **kwargs)
