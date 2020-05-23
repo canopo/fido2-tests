@@ -239,6 +239,7 @@ class TestHmacSecret(object):
 
 
 class TestHmacSecretUV(object):
+    @pytest.mark.skip(reason='The following test is for CTAP 2.1')
     def test_hmac_secret_different_with_uv(self, device, MCHmacSecret, cipher, sharedSecret):
         salts = [salt1]
         key_agreement, shared_secret = sharedSecret
