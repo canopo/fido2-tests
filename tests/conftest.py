@@ -9,7 +9,7 @@ from fido2.ctap import CtapError
 from fido2.ctap1 import CTAP1
 from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
 from fido2.hid import CtapHidDevice
-from fido2.utils import Timeout, hmac_sha256, sha256
+from fido2.utils import hmac_sha256, sha256
 
 from tests.utils import *
 
@@ -151,15 +151,15 @@ class TestDevice:
         dev = None
         self.nfc_interface_only = nfcInterfaceOnly
         if not nfcInterfaceOnly:
-            print("--- HID ---")
-            print(list(CtapHidDevice.list_devices()))
+            # print("--- HID ---")
+            # print(list(CtapHidDevice.list_devices()))
             dev = next(CtapHidDevice.list_devices(), None)
 
         if not dev:
             from fido2.pcsc import CtapPcscDevice
 
-            print("--- NFC ---")
-            print(list(CtapPcscDevice.list_devices()))
+            # print("--- NFC ---")
+            # print(list(CtapPcscDevice.list_devices()))
             dev = next(CtapPcscDevice.list_devices(), None)
             if dev:
                 self.is_nfc = True
@@ -193,14 +193,30 @@ class TestDevice:
                 self.find_device(self.nfc_interface_only)
                 return
 
-        print("Please reboot authenticator and hit enter")
-        input()
-        self.find_device(self.nfc_interface_only)
+        if 'solokeys' in sys.argv:
+            try:
+                self.dev.call(0x53 ^ 0x80,b'')
+            except OSError:
+                pass
+
+            print('Rebooting..')
+            for _ in range(0,8):
+                time.sleep(0.1)
+                try:
+                    self.find_device(self.nfc_interface_only)
+                    return
+                except RuntimeError:
+                    pass
+        else:
+            print("Please reboot authenticator and hit enter")
+            input()
+            self.find_device(self.nfc_interface_only)
 
     def send_data(self, cmd, data):
         if not isinstance(data, bytes):
             data = struct.pack("%dB" % len(data), *[ord(x) for x in data])
         with Timeout(1.0) as event:
+            event.is_set()
             return self.dev.call(cmd, data, event)
 
     def send_raw(self, data, cid=None):
