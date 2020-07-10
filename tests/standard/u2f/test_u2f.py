@@ -102,7 +102,7 @@ class TestU2F(object):
             device.ctap1.authenticate(
                 RegRes.request.challenge, RegRes.request.appid, kh[: len(kh) // 2]
             )
-        assert e.value.code == 0x6700 # WRONG_LENGTH
+        assert e.value.code == APDU.WRONG_DATA
 
     def test_incorrect_appid(self, device, RegRes):
 
