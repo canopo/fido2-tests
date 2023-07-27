@@ -173,8 +173,8 @@ class TestCredProtectUv:
         pin = "123456A"
         req = FidoRequest()
 
-        device.client.pin_protocol.set_pin(pin)
-        pin_token = device.client.pin_protocol.get_pin_token(pin)
+        device.client.client_pin.set_pin(pin)
+        pin_token = device.client.client_pin.get_pin_token(pin)
         pin_auth = hmac_sha256(pin_token, req.cdh)[:16]
 
         req = FidoRequest(req, pin_protocol=1, pin_auth=pin_auth, allow_list = allow_list)

@@ -7,8 +7,8 @@ from fido2.attestation import Attestation
 from fido2.client import Fido2Client, _call_polling
 from fido2.ctap import CtapError
 from fido2.ctap1 import CTAP1
-from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
-from fido2.hid import CtapHidDevice
+from fido2.ctap2 import AttestedCredentialData, PinProtocolV1
+from fido2.hid import CtapHidDevice, CTAPHID, TYPE_INIT
 from fido2.utils import hmac_sha256, sha256
 
 from tests.utils import *
@@ -16,7 +16,7 @@ from tests.utils import *
 if "trezor" in sys.argv:
     from .vendor.trezor.udp_backend import force_udp_backend
 else:
-    from solo.fido2 import force_udp_backend
+    from .vendor.solo.udp_backend import force_udp_backend
 
 
 def pytest_addoption(parser):
@@ -303,7 +303,7 @@ class TestDevice:
 
     def send_raw(self, data, cid=None):
         if cid is None:
-            cid = self.dev._dev.cid
+            cid = struct.pack(">I", self.dev._channel_id)
         elif not isinstance(cid, bytes):
             cid = struct.pack("%dB" % len(cid), *[ord(x) for x in cid])
         if not isinstance(data, bytes):
@@ -314,9 +314,8 @@ class TestDevice:
             pad = "\x00" * (64 - l)
             pad = struct.pack("%dB" % len(pad), *[ord(x) for x in pad])
             data = data + pad
-        data = list(data)
         assert len(data) == 64
-        self.dev._dev.InternalSendPacket(Packet(data))
+        self.dev._connection.write_packet(data)
 
     def send_magic_reboot(
         self,
@@ -333,7 +332,7 @@ class TestDevice:
             + b"\x5b\xb2\x6e\xb7\x7a\x73\xea\xa4\x78\x13\xf6\xb4"
             + b"\x9a\x72\x50\xdc"
         )
-        self.dev._dev.InternalSendPacket(Packet(magic_cmd))
+        self.dev._connection.write_packet(magic_cmd)
 
     def send_nfc_reboot(
         self,
@@ -367,19 +366,76 @@ class TestDevice:
     def cid(
         self,
     ):
-        return self.dev._dev.cid
+        return struct.pack(">I", self.dev._channel_id)
 
     def set_cid(self, cid):
-        if not isinstance(cid, (bytes, bytearray)):
-            cid = struct.pack("%dB" % len(cid), *[ord(x) for x in cid])
-        self.dev._dev.cid = cid
+        if isinstance(cid, str):
+            cid = bytes(cid, encoding="raw_unicode_escape")
+        self.dev._channel_id = struct.unpack_from(">I", cid)[0]
+
+# recv_raw from:
+#   https://github.com/Yubico/python-fido2/blob/5cd89c999aa556770b0c3a83f6ac238dca4e8df5/fido2/hid/__init__.py#L154
+# Copyright (c) 2020 Yubico AB
+# All rights reserved.
+#
+#   Redistribution and use in source and binary forms, with or
+#   without modification, are permitted provided that the following
+#   conditions are met:
+#
+#    1. Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#    2. Redistributions in binary form must reproduce the above
+#       copyright notice, this list of conditions and the following
+#       disclaimer in the documentation and/or other materials provided
+#       with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
 
     def recv_raw(
         self,
     ):
         with Timeout(1.0):
-            cmd, payload = self.dev._dev.InternalRecv()
-        return cmd, payload
+            seq = 0
+            response = None
+            while True:
+
+                recv = self.dev._connection.read_packet()
+                r_channel = struct.unpack_from(">I", recv)[0]
+                recv = recv[4:]
+                if r_channel != self.dev._channel_id:
+                    continue
+
+                if response is None:  # Initialization packet
+                    r_cmd, r_len = struct.unpack_from(">BH", recv)
+                    recv = recv[3:]
+                    if (r_cmd & TYPE_INIT) != 0:
+                        cmd = r_cmd
+                        response = b""
+                    else:
+                        raise CtapError(CtapError.ERR.INVALID_COMMAND)
+                else:  # Continuation packet
+                    r_seq = struct.unpack_from(">B", recv)[0]
+                    recv = recv[1:]
+                    if r_seq != seq:
+                        raise Exception("Wrong sequence number")
+                    seq += 1
+
+                response += recv
+                if len(response) >= r_len:
+                    break
+
+            return cmd, response[:r_len]
 
     def check_error(data, err=None):
         assert len(data) == 1
@@ -434,7 +490,7 @@ class TestDevice:
             pin = args[-1]
             args = list(args[:-1])
             if args[7] == None and args[8] == None:
-                pin_token = self.client.pin_protocol.get_pin_token(pin)
+                pin_token = self.client.client_pin.get_pin_token(pin)
                 pin_auth = hmac_sha256(pin_token, args[0])[:16]
                 args[7] = pin_auth
                 args[8] = 1
@@ -456,7 +512,7 @@ class TestDevice:
             pin = args[-1]
             args = list(args[:-1])
             if args[5] == None and args[6] == None:
-                pin_token = self.client.pin_protocol.get_pin_token(pin)
+                pin_token = self.client.client_pin.get_pin_token(pin)
                 pin_auth = hmac_sha256(pin_token, args[1])[:16]
                 args[5] = pin_auth
                 args[6] = 1
@@ -467,7 +523,7 @@ class TestDevice:
         return self.ctap2.client_pin(*args, **kwargs)
 
     def sendPP(self, *args, **kwargs):
-        return self.client.pin_protocol.get_pin_token(*args, **kwargs)
+        return self.client.client_pin.get_pin_token(*args, **kwargs)
 
     def delay(secs):
         time.sleep(secs)

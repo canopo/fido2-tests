@@ -1,5 +1,4 @@
-fido2 == 0.8.1
-solo-python == 0.0.26
+fido2 == 0.9.3
 pyscard
 pytest
 pytest-ordering

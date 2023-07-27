@@ -14,7 +14,7 @@ def get_salt_params(cipher, shared_secret, salts):
         salt_enc += enc.update(salt)
     salt_enc += enc.finalize()
 
-    salt_auth = hmac_sha256(shared_secret, salt_enc)[:16]
+    salt_auth = hmac_sha256(shared_secret[:32], salt_enc)[:16]
     return salt_enc, salt_auth
 
 
@@ -37,12 +37,15 @@ def MCHmacSecret(
 
 @pytest.fixture(scope="class")
 def sharedSecret(device, MCHmacSecret):
-    return device.client.pin_protocol.get_shared_secret()
+    return device.client.client_pin._get_shared_secret() + (device.client.client_pin.protocol.VERSION, )
 
 
 @pytest.fixture(scope="class")
 def cipher(device, sharedSecret):
-    key_agreement, shared_secret = sharedSecret
+    key_agreement, shared_secret, ver_pin_proto = sharedSecret
+    if ver_pin_proto == 2:
+        # The second key should be used in Pin Protocol V2
+        shared_secret = shared_secret[32:]
     return Cipher(
         algorithms.AES(shared_secret), modes.CBC(b"\x00" * 16), default_backend()
     )
@@ -74,10 +77,10 @@ class TestHmacSecret(object):
     def test_hmac_secret_entropy(
         self, device, MCHmacSecret, cipher, sharedSecret, salts
     ):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, salts)
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}}
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}}
         )
         print("key-agreement", key_agreement)
         auth = device.sendGA(*req.toGA())
@@ -102,10 +105,10 @@ class TestHmacSecret(object):
             assert shannon_entropy(key) > 5.4
 
     def get_output(self, device, MCHmacSecret, cipher, sharedSecret, salts):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, salts)
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}}
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}}
         )
         auth = device.sendGA(*req.toGA())
 
@@ -140,32 +143,32 @@ class TestHmacSecret(object):
         assert output12[0] != output12[1]
 
     def test_missing_keyAgreement(self, device, cipher, sharedSecret):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
 
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, (salt3,))
 
-        req = FidoRequest(extensions={"hmac-secret": {2: salt_enc, 3: salt_auth}})
+        req = FidoRequest(extensions={"hmac-secret": {2: salt_enc, 3: salt_auth, 4: ver_pin_proto}})
 
         with pytest.raises(CtapError):
             device.sendGA(*req.toGA())
 
     def test_missing_saltAuth(self, device, cipher, sharedSecret):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
 
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, (salt3,))
 
-        req = FidoRequest(extensions={"hmac-secret": {1: key_agreement, 2: salt_enc}})
+        req = FidoRequest(extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 4: ver_pin_proto}})
 
         with pytest.raises(CtapError) as e:
             device.sendGA(*req.toGA())
         assert e.value.code == CtapError.ERR.MISSING_PARAMETER
 
     def test_missing_saltEnc(self, device, cipher, sharedSecret):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
 
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, (salt3,))
 
-        req = FidoRequest(extensions={"hmac-secret": {1: key_agreement, 3: salt_auth}})
+        req = FidoRequest(extensions={"hmac-secret": {1: key_agreement, 3: salt_auth, 4: ver_pin_proto}})
 
         with pytest.raises(CtapError) as e:
             device.sendGA(*req.toGA())
@@ -173,7 +176,7 @@ class TestHmacSecret(object):
 
     def test_bad_auth(self, device, cipher, sharedSecret):
 
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
 
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, (salt3,))
 
@@ -182,7 +185,7 @@ class TestHmacSecret(object):
         bad_auth = bytes(bad_auth)
 
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: bad_auth}}
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: bad_auth, 4: ver_pin_proto}}
         )
 
         with pytest.raises(CtapError) as e:
@@ -191,11 +194,11 @@ class TestHmacSecret(object):
 
     @pytest.mark.parametrize("salts", [(salt4,), (salt4, salt5)])
     def test_invalid_salt_length(self, device, cipher, sharedSecret, salts):
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, salts)
 
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}}
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}}
         )
 
         with pytest.raises(CtapError) as e:
@@ -222,10 +225,10 @@ class TestHmacSecret(object):
             res = device.sendMC(*req.toMC())
             regs.append(res)
 
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, salts)
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}},
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}},
             rp=rp,
         )
 
@@ -256,10 +259,10 @@ class TestHmacSecretUV(object):
         self, device, MCHmacSecret, cipher, sharedSecret
     ):
         salts = [salt1]
-        key_agreement, shared_secret = sharedSecret
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
         salt_enc, salt_auth = get_salt_params(cipher, shared_secret, salts)
         req = FidoRequest(
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}}
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}}
         )
         auth_no_uv = device.sendGA(*req.toGA())
         assert (auth_no_uv.auth_data.flags & (1 << 2)) == 0
@@ -274,15 +277,15 @@ class TestHmacSecretUV(object):
 
         # Now get same auth with UV
         pin = "1234"
-        device.client.pin_protocol.set_pin(pin)
-        pin_token = device.client.pin_protocol.get_pin_token(pin)
+        device.client.client_pin.set_pin(pin)
+        pin_token = device.client.client_pin.get_pin_token(pin)
         pin_auth = hmac_sha256(pin_token, req.cdh)[:16]
 
         req = FidoRequest(
             req,
             pin_protocol=1,
             pin_auth=pin_auth,
-            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth}},
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto}},
         )
 
         auth_uv = device.sendGA(*req.toGA())

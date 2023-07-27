@@ -17,7 +17,7 @@ def SetPINRes(request, device, info):
 
     if pin:
         if "clientPin" in info.options:
-            device.client.pin_protocol.set_pin(pin)
+            device.client.client_pin.set_pin(pin)
             req = FidoRequest(req, pin = pin)
 
     res = device.sendMC(*req.toMC())
@@ -425,7 +425,7 @@ class TestResidentKey(object):
         """
         device.reset()
         pin = '12345'
-        device.client.pin_protocol.set_pin(pin)
+        device.client.client_pin.set_pin(pin)
         req = FidoRequest(pin = pin, options={"rk": True})
 
         regs = []

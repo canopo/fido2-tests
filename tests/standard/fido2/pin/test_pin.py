@@ -1,7 +1,7 @@
 import sys
 import pytest
 from fido2.ctap import CtapError
-from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
+from fido2.ctap2 import AttestedCredentialData, ClientPin
 
 from tests.utils import *
 
@@ -16,7 +16,7 @@ def SetPinRes(request, device):
     pin = request.param
     req = FidoRequest()
 
-    device.client.pin_protocol.set_pin(pin)
+    device.client.client_pin.set_pin(pin)
 
     req = FidoRequest(req, pin = pin)
 
@@ -28,7 +28,7 @@ def SetPinRes(request, device):
 
 @pytest.fixture(scope="class")
 def CPRes(request, device, SetPinRes):
-    res = device.sendCP(1, PinProtocolV1.CMD.GET_KEY_AGREEMENT)
+    res = device.sendCP(1, ClientPin.CMD.GET_KEY_AGREEMENT)
     return res
 
 
@@ -58,9 +58,9 @@ class TestPin(object):
     def test_set_pin_twice(self, device, SetPinRes):
         """ Setting pin when a pin is already set should result in error NotAllowed. """
         with pytest.raises(CtapError) as e:
-            device.client.pin_protocol.set_pin('1234')
+            device.client.client_pin.set_pin('1234')
 
-        assert e.value.code == CtapError.ERR.NOT_ALLOWED
+        assert e.value.code == CtapError.ERR.PIN_AUTH_INVALID
 
 
     def test_get_key_agreement_fields(self, CPRes):
@@ -117,7 +117,7 @@ class TestPin(object):
 
 class TestChangePin:
     def test_change_pin(self, device, SetPinRes):
-        device.client.pin_protocol.change_pin(PIN1, PIN2)
+        device.client.client_pin.change_pin(PIN1, PIN2)
 
         req = FidoRequest(SetPinRes.request, pin = PIN2)
 
@@ -158,7 +158,7 @@ class TestPinAttempts:
             assert e.value.code == CtapError.ERR.PIN_INVALID
 
             print("Check there is %d pin attempts left" % (8 - i))
-            res = device.ctap2.client_pin(1, PinProtocolV1.CMD.GET_RETRIES)
+            res = device.ctap2.client_pin(1, ClientPin.CMD.GET_PIN_RETRIES)
             assert res[3] == (8 - i)
 
         for i in range(1, 3):
@@ -170,5 +170,5 @@ class TestPinAttempts:
 
         reg = device.sendMC(*FidoRequest(SetPinRes, pin = pin).toMC())
 
-        res = device.ctap2.client_pin(1, PinProtocolV1.CMD.GET_RETRIES)
+        res = device.ctap2.client_pin(1, ClientPin.CMD.GET_PIN_RETRIES)
         assert res[3] == (8)

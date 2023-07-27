@@ -5,7 +5,8 @@ import sys
 from threading import Event, Timer
 from numbers import Number
 
-from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
+from fido2.ctap2 import AttestedCredentialData, PinProtocolV1
+from fido2.cose import EdDSA, ES256
 from fido2.utils import hmac_sha256, sha256
 
 if "trezor" in sys.argv:

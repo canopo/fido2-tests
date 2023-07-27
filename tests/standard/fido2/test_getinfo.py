@@ -16,8 +16,8 @@ def test_get_info_version(info):
 
 
 def test_Check_pin_protocols_field(info):
-    if len(info.pin_protocols):
-        assert sum(info.pin_protocols) > 0
+    if len(info.pin_uv_protocols):
+        assert sum(info.pin_uv_protocols) > 0
 
 
 def test_Check_options_field(info):

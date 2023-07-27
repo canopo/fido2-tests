@@ -1,7 +1,7 @@
 import sys
 import pytest
 from fido2.ctap import CtapError
-from fido2.ctap2 import ES256, AttestedCredentialData, PinProtocolV1
+from fido2.ctap2 import AttestedCredentialData, ClientPin
 
 from tests.utils import *
 
@@ -11,9 +11,9 @@ from tests.utils import *
 )
 def test_lockout(device, resetDevice):
     pin = "TestPin"
-    device.client.pin_protocol.set_pin(pin)
+    device.client.client_pin.set_pin(pin)
 
-    pin_token = device.client.pin_protocol.get_pin_token(pin)
+    pin_token = device.client.client_pin.get_pin_token(pin)
     req = FidoRequest(pin_token=pin_token)
 
     req.pin_auth = hmac_sha256(pin_token, req.cdh)[:16]
@@ -33,7 +33,7 @@ def test_lockout(device, resetDevice):
         if i > 8:
             attempts = 0
 
-        res = device.ctap2.client_pin(1, PinProtocolV1.CMD.GET_RETRIES)
+        res = device.ctap2.client_pin(1, ClientPin.CMD.GET_PIN_RETRIES)
         assert res[3] == attempts
 
         if err == CtapError.ERR.PIN_AUTH_BLOCKED:
