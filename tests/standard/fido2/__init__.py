@@ -67,7 +67,7 @@ def TestCborKeysSorted(cbor_obj):
         if isinstance(cbor_obj, dict) and not isinstance(l[i], (str, int)):
             raise ValueError(f"Cbor map key {l[i]} must be int or str for CTAP2")
 
-        if l[i] != l_sorted[i]:
+        if isinstance(cbor_obj, dict) and l[i] != l_sorted[i]:
             raise ValueError(f"Cbor map item {i}: {l[i]} is out of order")
 
         # value = None

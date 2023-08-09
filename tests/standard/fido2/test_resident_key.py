@@ -399,6 +399,7 @@ class TestResidentKey(object):
         # Should overwrite the first credential.
         mc_res2 = resetDevice.sendMC(*req.toMC())
 
+        del req.options["rk"]
         ga_res = resetDevice.sendGA(*req.toGA())
 
         # If there's only one credential, this is None
