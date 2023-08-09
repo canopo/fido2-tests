@@ -239,20 +239,30 @@ class TestHmacSecret(object):
         for i in range(0, accounts - 1):
             auths.append(device.ctap2.get_next_assertion())
 
+        hmac_keys = {}
         for x in auths:
             assert x.auth_data.flags & (1 << 7)  # has extension
-            ext = auth.auth_data.extensions
+            ext = x.auth_data.extensions
             assert ext
             assert "hmac-secret" in ext
             assert isinstance(ext["hmac-secret"], bytes)
             assert len(ext["hmac-secret"]) == len(salts) * 32
             dec = cipher.decryptor()
             key = dec.update(ext["hmac-secret"]) + dec.finalize()
+            hmac_keys[x.credential['id']] = key
 
         auths.reverse()
         for x, y in zip(regs, auths):
             verify(x, y, req.cdh)
 
+        for cred_id in hmac_keys.keys():
+            req1 = FidoRequest(req, allow_list = [{"id": cred_id, "type": "public-key"}])
+            auth = device.sendGA(*req1.toGA())
+            ext = auth.auth_data.extensions
+            dec = cipher.decryptor()
+            key = dec.update(ext["hmac-secret"]) + dec.finalize()
+            assert auth.credential['id'] == cred_id
+            assert key == hmac_keys[cred_id]
 
 class TestHmacSecretUV(object):
     def test_hmac_secret_different_with_uv(
