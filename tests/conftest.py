@@ -270,10 +270,10 @@ class TestDevice:
             TestDevice.delay(0.25)
             return
 
-        if "solokeys" in sys.argv or "solobee" in sys.argv:
+        if "solokeys" in sys.argv or "solobee" in sys.argv or "canokeys" in sys.argv:
             if self.is_nfc:
                 if self.send_nfc_reboot():
-                    TestDevice.delay(5)
+                    TestDevice.delay(1)
                     self.find_device(self.nfc_interface_only)
                     return
             try:
@@ -343,7 +343,8 @@ class TestDevice:
 
         from smartcard.Exceptions import NoCardException, CardConnectionException
 
-        if "solokeys" in sys.argv:
+        if "solokeys" in sys.argv or "canokeys" in sys.argv:
+            header = b"\x00\xee\x00\x00\x04"
             data = b"\x12\x56\xab\xf0"
             resp, sw1, sw2 = self.dev.apdu_exchange(header + data)
             return sw1 == 0x90 and sw2 == 0x00
