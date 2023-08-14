@@ -239,6 +239,60 @@ class TestCredentialManagement(object):
         res = CredMgmt.enumerate_creds(regs[0].auth_data.rp_id_hash)
         assert len(res) == 2
 
+    def test_interleaved_add_delete(self, device, PinToken, CredMgmt):
+        rp = {"id": "new_rp.com"}
+        reg = None
+        regs = {}
+        for time_limit in range(1000):
+            r = random.randint(1, 100)
+            if r < 85 or len(regs) == 0:
+                req = FidoRequest(
+                    pin=PIN,
+                    options={"rk": True},
+                    rp=rp,
+                )
+                try:
+                    reg = device.sendMC(*req.toMC())
+                    regs[reg.auth_data.credential_data.credential_id] = req.user['id']
+                    print("CREATE: ", hexlify(reg.auth_data.credential_data.credential_id))
+                except CtapError as err:
+                    assert err.code == CtapError.ERR.KEY_STORE_FULL
+                    break
+            else:
+                to_be_del = random.choice(list(regs.keys()))
+                print("DELETE: ", hexlify(to_be_del))
+                cred = {"id": to_be_del, "type": "public-key"}
+                CredMgmt.pin_uv_token = _get_pin_token_with_CM_permission(device)
+                CredMgmt.delete_cred(cred)
+                del regs[to_be_del]
+
+        # Now the storage must be full
+        with pytest.raises(CtapError) as e:
+            req = FidoRequest(
+                pin=PIN,
+                options={"rk": True},
+                rp=rp,
+            )
+            device.sendMC(*req.toMC())
+        assert e.value.code == CtapError.ERR.KEY_STORE_FULL
+
+        CredMgmt.pin_uv_token = _get_pin_token_with_CM_permission(device)
+
+        # Check they all enumerate
+        creds = CredMgmt.enumerate_creds(reg.auth_data.rp_id_hash)
+        for cred in creds:
+            cred_id = cred[7]["id"]
+            user_id = cred[6]["id"]
+            print("CHECK: ", hexlify(cred_id))
+            assert cred_id in regs
+            assert user_id == regs[cred_id]
+            del regs[cred_id]
+
+        for cred_id in regs.keys():
+            print("NOT RETURN: ", hexlify(cred_id))
+        assert len(regs) == 0
+
+
     def test_multiple_creds_per_multiple_rps(
         self, device, PinToken, MC_RK_Res, CredMgmt
     ):
