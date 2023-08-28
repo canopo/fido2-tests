@@ -334,6 +334,17 @@ class TestDevice:
         )
         self.dev._connection.write_packet(magic_cmd)
 
+    def send_err_injection(self, data, p1=0, p2=0):
+        if self.is_sim:
+            cmd = b"\x99\x10\x52\xca\x95\xe5\x69\xde\x69\xe0\x2e\xbf"
+            cmd += struct.pack("2B", p1, p2)
+            cmd += data
+            self.dev._connection.write_packet(cmd)
+        elif self.is_nfc:
+            header = b"\x00\xef" + struct.pack("3B", p1, p2, len(data))
+            resp, sw1, sw2 = self.dev.apdu_exchange(header + data)
+            return sw1 == 0x90 and sw2 == 0x00
+
     def send_nfc_reboot(
         self,
     ):
