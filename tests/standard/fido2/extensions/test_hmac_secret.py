@@ -6,15 +6,47 @@ from fido2.utils import hmac_sha256, sha256
 
 from tests.utils import FidoRequest, shannon_entropy, verify, generate_user
 
+class HmacSecretCipher(Cipher):
+    def __init__(self, shared_secret, ver_pin_proto):
+        self.ver_pin_proto = ver_pin_proto
+        self.enc_iv = bytes(range(16)) if self.ver_pin_proto == 2 else b"\x00" * 16
+
+        if ver_pin_proto == 2:
+            # The second key should be used in Pin Protocol V2
+            shared_secret = shared_secret[32:]
+        Cipher.__init__(
+            self, algorithms.AES(shared_secret), modes.CBC(self.enc_iv), default_backend()
+        )
+        
+    def get_iv(self):
+        return self.mode.initialization_vector if self.ver_pin_proto == 2 else b''
+    
+    def hs_decrypt(self, data):
+        iv = data[:16] if self.ver_pin_proto == 2 else b"\x00" * 16
+        self.mode = modes.CBC(iv)
+        if self.ver_pin_proto == 2:
+            data = data[16:]
+
+        dec = self.decryptor()
+        result = dec.update(data) + dec.finalize()
+        return result
+
+    def encryptor(self):
+        self.mode = modes.CBC(self.enc_iv)
+        return Cipher.encryptor(self)
 
 def get_salt_params(cipher, shared_secret, salts):
     enc = cipher.encryptor()
-    salt_enc = b""
+    salt_enc = cipher.get_iv()
     for salt in salts:
         salt_enc += enc.update(salt)
     salt_enc += enc.finalize()
 
-    salt_auth = hmac_sha256(shared_secret[:32], salt_enc)[:16]
+    if len(shared_secret) == 64:
+        # The first key (hmac key) should be used in Pin Protocol V2
+        salt_auth = hmac_sha256(shared_secret[:32], salt_enc)
+    else:
+        salt_auth = hmac_sha256(shared_secret, salt_enc)[:16]
     return salt_enc, salt_auth
 
 
@@ -43,12 +75,7 @@ def sharedSecret(device, MCHmacSecret):
 @pytest.fixture(scope="class")
 def cipher(device, sharedSecret):
     key_agreement, shared_secret, ver_pin_proto = sharedSecret
-    if ver_pin_proto == 2:
-        # The second key should be used in Pin Protocol V2
-        shared_secret = shared_secret[32:]
-    return Cipher(
-        algorithms.AES(shared_secret), modes.CBC(b"\x00" * 16), default_backend()
-    )
+    return HmacSecretCipher(shared_secret, ver_pin_proto)
 
 
 @pytest.fixture(scope="class")
@@ -89,12 +116,11 @@ class TestHmacSecret(object):
         assert ext
         assert "hmac-secret" in ext
         assert isinstance(ext["hmac-secret"], bytes)
-        assert len(ext["hmac-secret"]) == len(salts) * 32
+        assert len(ext["hmac-secret"]) == len(salts) * 32 + len(cipher.get_iv())
 
         verify(MCHmacSecret, auth, req.cdh)
 
-        dec = cipher.decryptor()
-        key = dec.update(ext["hmac-secret"]) + dec.finalize()
+        key = cipher.hs_decrypt(ext["hmac-secret"])
 
         print(shannon_entropy(ext["hmac-secret"]))
         if len(salts) == 1:
@@ -116,12 +142,11 @@ class TestHmacSecret(object):
         assert ext
         assert "hmac-secret" in ext
         assert isinstance(ext["hmac-secret"], bytes)
-        assert len(ext["hmac-secret"]) == len(salts) * 32
+        assert len(ext["hmac-secret"]) == len(salts) * 32 + len(cipher.get_iv())
 
         verify(MCHmacSecret, auth, req.cdh)
 
-        dec = cipher.decryptor()
-        output = dec.update(ext["hmac-secret"]) + dec.finalize()
+        output = cipher.hs_decrypt(ext["hmac-secret"])
 
         if len(salts) == 2:
             return (output[0:32], output[32:64])
@@ -190,7 +215,7 @@ class TestHmacSecret(object):
 
         with pytest.raises(CtapError) as e:
             device.sendGA(*req.toGA())
-        assert e.value.code == CtapError.ERR.EXTENSION_FIRST
+        assert e.value.code == CtapError.ERR.PIN_AUTH_INVALID
 
     @pytest.mark.parametrize("salts", [(salt4,), (salt4, salt5)])
     def test_invalid_salt_length(self, device, cipher, sharedSecret, salts):
@@ -246,9 +271,8 @@ class TestHmacSecret(object):
             assert ext
             assert "hmac-secret" in ext
             assert isinstance(ext["hmac-secret"], bytes)
-            assert len(ext["hmac-secret"]) == len(salts) * 32
-            dec = cipher.decryptor()
-            key = dec.update(ext["hmac-secret"]) + dec.finalize()
+            assert len(ext["hmac-secret"]) == len(salts) * 32 + len(cipher.get_iv())
+            key = cipher.hs_decrypt(ext["hmac-secret"])
             hmac_keys[x.credential['id']] = key
 
         auths.reverse()
@@ -259,8 +283,7 @@ class TestHmacSecret(object):
             req1 = FidoRequest(req, allow_list = [{"id": cred_id, "type": "public-key"}])
             auth = device.sendGA(*req1.toGA())
             ext = auth.auth_data.extensions
-            dec = cipher.decryptor()
-            key = dec.update(ext["hmac-secret"]) + dec.finalize()
+            key = cipher.hs_decrypt(ext["hmac-secret"])
             assert auth.credential['id'] == cred_id
             assert key == hmac_keys[cred_id]
 
@@ -281,7 +304,7 @@ class TestHmacSecretUV(object):
         assert ext_no_uv
         assert "hmac-secret" in ext_no_uv
         assert isinstance(ext_no_uv["hmac-secret"], bytes)
-        assert len(ext_no_uv["hmac-secret"]) == len(salts) * 32
+        assert len(ext_no_uv["hmac-secret"]) == len(salts) * 32 + len(cipher.get_iv())
 
         verify(MCHmacSecret, auth_no_uv, req.cdh)
 
@@ -304,7 +327,7 @@ class TestHmacSecretUV(object):
         assert ext_uv
         assert "hmac-secret" in ext_uv
         assert isinstance(ext_uv["hmac-secret"], bytes)
-        assert len(ext_uv["hmac-secret"]) == len(salts) * 32
+        assert len(ext_uv["hmac-secret"]) == len(salts) * 32 + len(cipher.get_iv())
 
         verify(MCHmacSecret, auth_uv, req.cdh)
 
