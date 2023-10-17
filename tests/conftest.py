@@ -1,6 +1,7 @@
 import struct
 import time
 import sys
+import os
 
 import pytest
 from fido2.attestation import Attestation
@@ -270,7 +271,19 @@ class TestDevice:
             TestDevice.delay(0.25)
             return
 
-        if "solokeys" in sys.argv or "solobee" in sys.argv or "canokeys" in sys.argv:
+        if "canokeys" in sys.argv:
+            if self.is_nfc:
+                if self.send_nfc_reboot():
+                    TestDevice.delay(1)
+                    self.find_device(self.nfc_interface_only)
+                    return
+            try:
+                os.system("STM32_Programmer_CLI -c port=SWD  -rst")
+                TestDevice.delay(2)
+                self.find_device(self.nfc_interface_only)
+            except OSError:
+                pass
+        elif "solokeys" in sys.argv or "solobee" in sys.argv:
             if self.is_nfc:
                 if self.send_nfc_reboot():
                     TestDevice.delay(1)
@@ -344,6 +357,8 @@ class TestDevice:
             header = b"\x00\xef" + struct.pack("3B", p1, p2, len(data))
             resp, sw1, sw2 = self.dev.apdu_exchange(header + data)
             return sw1 == 0x90 and sw2 == 0x00
+        else:
+            pass #TODO: HID
 
     def send_nfc_reboot(
         self,

@@ -121,6 +121,7 @@ class TestClientPin(object):
                     assert e.value.code == CtapError.ERR.PIN_INVALID
             elif i == 8:
                 device.reboot()
+                client_pin = self._get_client_pin(device, protocolVer)
                 with pytest.raises(CtapError) as e:
                     client_pin.change_pin('wrong', 'NNNNN')
                 assert e.value.code == CtapError.ERR.PIN_INVALID
