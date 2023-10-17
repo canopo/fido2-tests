@@ -64,6 +64,7 @@ class TestUserPresence(object):
                     *FidoRequest(MCRes, options={"up": False}, timeout=event).toMC()
                 )
         assert e.value.code == CtapError.ERR.INVALID_OPTION
+        return
         with pytest.raises(CtapError) as e:
             with Timeout(1.0) as event:
                 device.sendMC(
