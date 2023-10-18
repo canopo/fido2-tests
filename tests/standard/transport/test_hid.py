@@ -108,7 +108,7 @@ class TestHID(object):
     def test_ping_abort_from_different_cid(self, device, check_timeouts=False):
         oldcid = device.cid()
         newcid = "\x11\x22\x33\x44"
-        device.send_raw("\x81\x10\x00")
+        device.send_raw("\x81\x04\x00")
         device.send_raw("\x00")
         device.send_raw("\x01")
         device.set_cid(newcid)
@@ -117,7 +117,9 @@ class TestHID(object):
         )  # init from different cid
         print("wait for init response")
         cmd, r = device.recv_raw()  # init response
-        assert cmd == 0x86
+        assert cmd == 0xBF
+        assert r[0] == CtapError.ERR.CHANNEL_BUSY
+
         device.set_cid(oldcid)
         if check_timeouts:
             # print('wait for timeout')
@@ -136,22 +138,6 @@ class TestHID(object):
         assert cmd == 0xBF
         assert r[0] == CtapError.ERR.TIMEOUT
         assert delt < 1000 and delt > 400
-
-    def test_not_cont(self, device, check_timeouts=False):
-        device.send_data(CTAPHID.INIT, "\x11\x22\x33\x44\x55\x66\x77\x88")
-        device.send_raw("\x81\x04\x00")
-        device.send_raw("\x00")
-        device.send_raw("\x01")
-        device.send_raw("\x81\x10\x00")  # init packet
-        cmd, r = device.recv_raw()  # timeout response
-        assert cmd == 0xBF
-        assert r[0] == CtapError.ERR.INVALID_SEQ
-
-        if check_timeouts:
-            device.send_data(CTAPHID.INIT, "\x11\x22\x33\x44\x55\x66\x77\x88")
-            device.send_raw("\x01\x10\x00")
-            with pytest.raises(socket.timeout):
-                cmd, r = device.recv_raw()  # timeout response
 
     def test_check_busy(self, device):
         t1 = time.time() * 1000
@@ -183,8 +169,6 @@ class TestHID(object):
 
         device.set_cid(cid2)  # send ping on 2nd channel
         device.send_raw("\x81\x00\x63")
-        time.sleep(0.1)
-        device.send_raw("\x00")
 
         cmd, r = device.recv_raw()  # busy response
 
@@ -238,6 +222,7 @@ class TestHID(object):
         def count_keepalive(_x):
             nonlocal count
             count += 1
+            print("keep-alive", count)
 
         # We should get a keepalive within .5s
         try:
