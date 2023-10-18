@@ -239,3 +239,5 @@ class TestHID(object):
             except CtapError as e:
                 assert e.code == CtapError.ERR.CHANNEL_BUSY
 
+        # more CANCEL should be discarded
+        device.send_raw('\x91\x00\x00')
