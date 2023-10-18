@@ -266,6 +266,10 @@ class TestCredentialManagement(object):
         res = CredMgmt.enumerate_creds(regs[0].auth_data.rp_id_hash)
         assert len(res) == 2
 
+    @pytest.mark.skipif(
+        "--sim" not in sys.argv and "--nfc" not in sys.argv,
+        reason="Takes too much time on real hardware",
+    )
     def test_interleaved_add_delete(self, device, PinToken, CredMgmt):
         RPs = [{"id": "new_rp1.com"}, {"id": "new_rp2.com"}, {"id": "new_rp3.com"}]
         reg = None
