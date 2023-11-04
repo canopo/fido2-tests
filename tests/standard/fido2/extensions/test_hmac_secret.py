@@ -287,6 +287,50 @@ class TestHmacSecret(object):
             assert auth.credential['id'] == cred_id
             assert key == hmac_keys[cred_id]
 
+    def test_hmac_secret_with_other_extensions(
+        self, resetDevice, info, cipher, sharedSecret
+    ):
+        if "credBlob" in info.extensions and \
+           "credProtect" in info.extensions and \
+           "largeBlobKey" in info.extensions:
+           print("Test all 4 extensions")
+        else:
+            pytest.skip("unsupported extensions")
+        blob = b"a" * info.max_cred_blob_length
+        req = FidoRequest(extensions={
+            "credBlob": blob,
+            "credProtect": 1,
+            "hmac-secret": True,
+            "largeBlobKey": True,
+        }, options={"rk": True})
+        mcRes = resetDevice.sendMC(*req.toMC())
+        setattr(mcRes, "request", req)
+        lbk = mcRes.large_blob_key
+        ext = mcRes.auth_data.extensions
+        assert "hmac-secret" in ext
+        assert "credBlob" in ext
+        assert "credProtect" in ext
+
+        key_agreement, shared_secret, ver_pin_proto = sharedSecret
+        salt_enc, salt_auth = get_salt_params(cipher, shared_secret, (salt1, salt2))
+        req = FidoRequest(
+            extensions={
+                "credBlob": True,
+                "hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: ver_pin_proto},
+                "largeBlobKey": True,
+            }
+        )
+        auth = resetDevice.sendGA(*req.toGA())
+
+        assert lbk == auth.large_blob_key
+        ext = auth.auth_data.extensions
+        assert ext
+        assert "hmac-secret" in ext
+        assert "credBlob" in ext
+        assert ext["credBlob"] == blob
+
+        verify(mcRes, auth, req.cdh)
+
 class TestHmacSecretUV(object):
     def test_hmac_secret_different_with_uv(
         self, device, MCHmacSecret, cipher, sharedSecret
