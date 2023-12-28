@@ -1,4 +1,5 @@
 fido2 == 0.9.3
+gmssl == 3.2.*
 pyscard
 pytest
 pytest-ordering
